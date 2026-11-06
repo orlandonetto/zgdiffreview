@@ -48,6 +48,10 @@ Opções:
 ## O que a tela tem
 
 - **Lado a lado ou unificado**, trocando no topo.
+- **Código colorido como no VS Code**: o realce usa o [Shiki](https://shiki.style), com as mesmas
+  gramáticas e os temas GitHub claro/escuro do editor (segue o tema do sistema). Funciona para
+  JS/TS/Vue, JSON, CSS, HTML, Markdown, YAML, SQL, shell, Python, Go e outras; cada gramática só é
+  baixada quando aparece um arquivo dela, e a tokenização roda fora da thread principal.
 - **Painel de arquivos em Fluxo, árvore ou lista.**
 - **Visto** por arquivo, com progresso no topo. Marcar recolhe o arquivo. Se o arquivo mudar na
   branch depois, o visto cai e aparece "Mudou desde que você viu".
@@ -90,7 +94,9 @@ a tecla, o nome fica sublinhado.
 - Definição num arquivo do diff: rola até lá, expande o trecho oculto se preciso e destaca a linha.
   Fora do diff: abre o visualizador de arquivo (onde ⌘+clique continua funcionando).
 - Vários resultados: aparece uma lista para escolher.
-- **Voltar**: Alt+← (Windows/Linux), ⌃− (Mac) ou o botão "← Voltar".
+- **Voltar e Avançar**, como no VS Code: "Voltar" leva de volta ao ponto exato onde você clicou,
+  com a linha destacada. Funcionam os botões ← → no topo, os **botões voltar/avançar do mouse**,
+  ⌘[ / ⌘] e ⌃− / ⌃⇧− no Mac, e Alt+← / Alt+→ no Windows/Linux.
 - A busca é em cascata: primeiro o mesmo mecanismo do VS Code (language service do TypeScript, que
   também entende JavaScript e o `<script>` de arquivos `.vue`), depois uma busca por declarações e,
   se nada achar, a opção de perguntar ao assistente.
@@ -102,7 +108,8 @@ a tecla, o nome fica sublinhado.
 | `n` / `p` | próximo / anterior arquivo, na ordem do painel |
 | `v` | marca o arquivo atual como visto e vai ao próximo não visto |
 | ⌘/Ctrl+clique | ir para a definição |
-| Alt+← / ⌃− | voltar |
+| ⌃− ou ⌘[ (Mac), Alt+← (Windows/Linux), botão voltar do mouse | voltar ao ponto do clique |
+| ⌃⇧− ou ⌘] (Mac), Alt+→ (Windows/Linux), botão avançar do mouse | avançar |
 | Esc | fecha visualizador e popups |
 
 ### Assistente (chat com IA)

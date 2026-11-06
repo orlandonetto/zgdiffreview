@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue';
-import { askAiForDefinition, nav, navigate } from '../nav.js';
+import { askAiForDefinition, nav, pickCandidate } from '../nav.js';
 
 const style = (p) => ({
   left: `${Math.min(p.x + 6, window.innerWidth - 520)}px`,
@@ -9,9 +9,7 @@ const style = (p) => ({
 
 const methodLabel = computed(() => (nav.picker?.method === 'typescript' ? 'análise do código' : 'busca por declaração'));
 
-function pick(c) {
-  navigate({ path: c.path, side: nav.picker.side, line: c.line });
-}
+const pick = pickCandidate;
 </script>
 
 <template>

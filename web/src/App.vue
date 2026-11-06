@@ -7,7 +7,20 @@ import DefinitionPopups from './components/DefinitionPopups.vue';
 import FileDiff from './components/FileDiff.vue';
 import FileSidebar from './components/FileSidebar.vue';
 import FileViewer from './components/FileViewer.vue';
-import { back, BACK_LABEL, closeViewer, installDefinitionClicks, MOD_LABEL, nav } from './nav.js';
+import {
+  back,
+  BACK_LABEL,
+  canGoBack,
+  canGoForward,
+  closeViewer,
+  forward,
+  FORWARD_LABEL,
+  installDefinitionClicks,
+  installHistory,
+  IS_MAC,
+  MOD_LABEL,
+  nav,
+} from './nav.js';
 import {
   collapseAll,
   expandAll,
@@ -28,7 +41,8 @@ const SHORTCUTS = [
   ['n / p', 'próximo / anterior arquivo (na ordem do painel)'],
   ['v', 'marcar como visto e ir ao próximo não visto'],
   [`${MOD_LABEL}+clique`, 'ir para a definição'],
-  [BACK_LABEL, 'voltar'],
+  [`${BACK_LABEL} · botão voltar do mouse`, 'voltar ao ponto do clique'],
+  [`${FORWARD_LABEL} · botão avançar do mouse`, 'avançar'],
   ['Esc', 'fechar visualizador e popups'],
 ];
 const shortcutsTitle = SHORTCUTS.map(([k, v]) => `${k}  —  ${v}`).join('\n');
@@ -62,12 +76,13 @@ function isTyping(e) {
 }
 
 function onKeydown(e) {
-  // Voltar: Alt+← (Windows/Linux) ou ⌃− (Mac), como no VS Code.
-  if ((e.altKey && e.key === 'ArrowLeft') || (e.ctrlKey && !e.metaKey && e.key === '-')) {
-    if (nav.history.length) {
-      e.preventDefault();
-      back();
-    }
+  // Voltar/avançar como no VS Code do Mac: ⌃− e ⌃⇧−. (⌘[ / ⌘], Alt+← / Alt+→ e os botões
+  // do mouse são do próprio navegador e chegam pelo histórico.)
+  if (IS_MAC && e.ctrlKey && !e.metaKey && !e.altKey && (e.code === 'Minus' || e.key === '-' || e.key === '_')) {
+    if (isTyping(e)) return;
+    e.preventDefault();
+    if (e.shiftKey) forward();
+    else back();
     return;
   }
   if (e.key === 'Escape') {
@@ -87,6 +102,7 @@ function onKeydown(e) {
 
 onMounted(async () => {
   installDefinitionClicks();
+  installHistory();
   window.addEventListener('keydown', onKeydown);
   await load();
   loadChatStatus();
@@ -158,7 +174,10 @@ function toggleChat() {
         </span>
       </div>
       <div class="topbar-actions">
-        <button v-if="nav.history.length" class="btn" :title="`Voltar (${BACK_LABEL})`" @click="back">← Voltar</button>
+        <div class="nav-buttons">
+          <button class="btn" :disabled="!canGoBack" :title="`Voltar ao ponto do clique (${BACK_LABEL} ou botão voltar do mouse)`" @click="back">←</button>
+          <button class="btn" :disabled="!canGoForward" :title="`Avançar (${FORWARD_LABEL} ou botão avançar do mouse)`" @click="forward">→</button>
+        </div>
         <div class="progress" :title="`${viewedCount} de ${store.review.files.length} arquivos vistos`">
           <span>{{ viewedCount }}/{{ store.review.files.length }} vistos</span>
           <div class="progress-bar"><div :style="{ width: `${progress}%` }" /></div>

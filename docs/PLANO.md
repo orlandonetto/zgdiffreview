@@ -10,6 +10,7 @@ Decisões tomadas e escopo de cada fase. Atualize o status quando uma fase mudar
 | 3 | Chat com LLM (OpenAI, Anthropic, Gemini), ferramentas de leitura | feito |
 | 4 | Chat com ações: sugerir comentários e ordem, descrição da PR, definição via IA | feito |
 | 5 | Opcional: "Ver referências"; Claude via Vertex AI | pendente |
+| 6 | Realce de sintaxe (Shiki) e Voltar/Avançar com histórico do navegador e botões do mouse | feito |
 
 ## Decisões
 
@@ -27,6 +28,16 @@ Decisões tomadas e escopo de cada fase. Atualize o status quando uma fase mudar
 - Testes aparecem no Fluxo logo depois do arquivo que testam, com chave "junto | no fim".
 - Ir para a definição em cascata: language service do TypeScript → heurística própria →
   IA (só com confirmação, a menos que `llm.autoDefinitionFallback` esteja ligado).
+
+## Fase 6: Realce de sintaxe e Voltar/Avançar
+
+- Realce com Shiki (gramáticas TextMate e temas do VS Code: github-light/github-dark), motor de regex
+  em JavaScript (sem WASM), num Web Worker; gramáticas carregadas sob demanda.
+- Cada lado do diff é tokenizado com as linhas nas posições certas; com o arquivo inteiro carregado,
+  o lado novo usa o arquivo completo (comentários e strings de várias linhas ficam certos).
+- Só tokeniza arquivos perto da tela; arquivos acima de 400 mil caracteres ou 10 mil linhas ficam sem cores.
+- Voltar/Avançar usa o History API: cada salto é uma entrada (pushState), e a origem guardada é o ponto
+  exato do clique (arquivo, lado e linha). Botões do mouse, ⌘[ / ⌘] e Alt+← / Alt+→ chegam via popstate.
 
 ## Fase 1: Fluxo
 

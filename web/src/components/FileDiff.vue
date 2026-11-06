@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api } from '../api.js';
 import { anchorOf, buildRows, EXPAND_STEP, expandGap, hasGaps, rowHas, snippetFor, toSplitRows } from '../lib/rows.js';
 import {
@@ -20,6 +20,8 @@ import { askAboutSelection } from '../chat.js';
 import { highlightLine, nav, navigate } from '../nav.js';
 import CommentCard from './CommentCard.vue';
 import CommentForm from './CommentForm.vue';
+import CodeText from './CodeText.js';
+import { highlight, partsFor } from '../lib/highlight.js';
 
 /** @typedef {import('../lib/rows.js').GapRow} GapRow */
 /** @typedef {import('../store.js').Draft} Draft */
@@ -241,6 +243,68 @@ async function copyPath() {
 
 const marker = (t) => (t === 'add' ? '+' : t === 'del' ? '-' : ' ');
 
+// ---------- Realce de sintaxe ----------
+
+const sectionEl = ref(null);
+/** Já esteve perto da área visível (só então vale tokenizar). */
+const nearView = ref(false);
+const oldTokens = ref(null);
+const newTokens = ref(null);
+let observer = null;
+
+onMounted(() => {
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        nearView.value = true;
+        observer?.disconnect();
+        observer = null;
+      }
+    },
+    { rootMargin: '800px 0px' },
+  );
+  if (sectionEl.value) observer.observe(sectionEl.value);
+});
+onBeforeUnmount(() => observer?.disconnect());
+
+/**
+ * Texto de um lado do arquivo para tokenizar: o arquivo inteiro quando já foi carregado
+ * (lado novo), senão as linhas visíveis nas posições certas (o resto fica em branco).
+ */
+function sideText(side) {
+  if (side === 'new' && newLines.value) return newLines.value.join('\n');
+  const arr = [];
+  for (const r of rows.value) {
+    if (r.kind !== 'line') continue;
+    const no = side === 'old' ? (r.type === 'add' ? undefined : r.oldNo) : r.type === 'del' ? undefined : r.newNo;
+    if (no) arr[no - 1] = r.content;
+  }
+  for (let k = 0; k < arr.length; k++) if (arr[k] === undefined) arr[k] = '';
+  return arr.join('\n');
+}
+
+let tokenRun = 0;
+watch(
+  () => (nearView.value && !collapsed.value && !props.file.binary ? [sideText('old'), sideText('new')] : null),
+  async (texts) => {
+    if (!texts) return;
+    const run = ++tokenRun;
+    const [oldText, newText] = texts;
+    const [o, n] = await Promise.all([
+      props.file.oldPath && oldText ? highlight(props.file.oldPath, oldText) : null,
+      props.file.newPath && newText ? highlight(props.file.newPath, newText) : null,
+    ]);
+    if (run !== tokenRun) return;
+    oldTokens.value = o;
+    newTokens.value = n;
+  },
+  { immediate: true },
+);
+
+/** Partes coloridas de uma linha (ou null para texto puro). */
+const partsOf = (side, no, content) => partsFor(side === 'old' ? oldTokens.value : newTokens.value, no, content);
+const unifiedParts = (row) => (row.type === 'del' ? partsOf('old', row.oldNo, row.content) : partsOf('new', row.newNo, row.content));
+
 // ---------- Fluxo: posição e "como se chega aqui" ----------
 
 const step = computed(() => (store.listMode === 'flow' ? flowSteps.value.find((s) => s.path === props.file.path) : null));
@@ -310,7 +374,7 @@ function askFromSelection() {
 </script>
 
 <template>
-  <section :id="fileDomId(file.path)" class="file" :class="{ viewed }">
+  <section :id="fileDomId(file.path)" ref="sectionEl" class="file" :class="{ viewed }">
     <header class="file-header">
       <button class="caret" :title="collapsed ? 'Abrir' : 'Recolher'" @click="toggleCollapsed(file.path)">
         {{ collapsed ? '▸' : '▾' }}
@@ -427,7 +491,7 @@ function askFromSelection() {
                   {{ row.newNo ?? '' }}
                 </td>
                 <td class="code" v-bind="unifiedDefAttrs(row)" @mousedown="onCodeMouseDown(anchorOf(row).side)">
-                  <span class="marker">{{ marker(row.type) }}</span><span class="text">{{ row.content }}</span>
+                  <span class="marker">{{ marker(row.type) }}</span><CodeText :content="row.content" :parts="unifiedParts(row)" />
                 </td>
               </tr>
 
@@ -448,7 +512,7 @@ function askFromSelection() {
                   @mousedown="onCodeMouseDown('old')"
                 >
                   <template v-if="row.left">
-                    <span class="marker">{{ marker(row.left.type) }}</span><span class="text">{{ row.left.content }}</span>
+                    <span class="marker">{{ marker(row.left.type) }}</span><CodeText :content="row.left.content" :parts="partsOf('old', row.left.no, row.left.content)" />
                   </template>
                 </td>
                 <td
@@ -466,7 +530,7 @@ function askFromSelection() {
                   @mousedown="onCodeMouseDown('new')"
                 >
                   <template v-if="row.right">
-                    <span class="marker">{{ marker(row.right.type) }}</span><span class="text">{{ row.right.content }}</span>
+                    <span class="marker">{{ marker(row.right.type) }}</span><CodeText :content="row.right.content" :parts="partsOf('new', row.right.no, row.right.content)" />
                   </template>
                 </td>
               </tr>

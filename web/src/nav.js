@@ -1,12 +1,18 @@
-import { reactive } from 'vue';
+import { computed, reactive } from 'vue';
 import { api } from './api.js';
 import { askAssistant, chatConfig } from './chat.js';
 import { flash, store } from './store.js';
 
 /**
- * "Ir para a definição" (⌘/Ctrl+clique), visualizador de arquivo e "Voltar".
+ * "Ir para a definição" (⌘/Ctrl+clique), visualizador de arquivo e Voltar/Avançar.
  *
- * @typedef {{ path: string, side: 'old' | 'new', line: number }} Location
+ * O histórico de navegação usa o History API do navegador: cada salto vira uma entrada
+ * (pushState), então os botões voltar/avançar do mouse, ⌘[ / ⌘] e Alt+← / Alt+→ funcionam
+ * como no VS Code. Cada entrada guarda o lugar exato (arquivo, lado e linha), e "Voltar"
+ * leva ao ponto onde você clicou, com a linha destacada.
+ *
+ * @typedef {{ kind: 'line' | 'viewer', path: string, side: 'old' | 'new', line: number }} LineEntry
+ * @typedef {{ kind: 'scroll', top: number }} ScrollEntry
  */
 
 export const nav = reactive({
@@ -20,21 +26,25 @@ export const nav = reactive({
   picker: null,
   /** "Não encontrei" com opção de perguntar à IA. */
   notFound: null,
-  /** Pilha de posições para "Voltar". */
-  history: [],
+  /** @type {Array<LineEntry | ScrollEntry>} */
+  entries: [{ kind: 'scroll', top: 0 }],
+  index: 0,
   busy: false,
 });
+
+export const canGoBack = computed(() => nav.index > 0);
+export const canGoForward = computed(() => nav.index < nav.entries.length - 1);
 
 export const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 /** ⌘ no Mac (Ctrl+clique no Mac é o menu de contexto); Ctrl no Windows/Linux. */
 export const isModClick = (e) => (IS_MAC ? e.metaKey : e.ctrlKey);
 export const MOD_LABEL = IS_MAC ? '⌘' : 'Ctrl';
-export const BACK_LABEL = IS_MAC ? '⌃−' : 'Alt+←';
+export const BACK_LABEL = IS_MAC ? '⌃− ou ⌘[' : 'Alt+←';
+export const FORWARD_LABEL = IS_MAC ? '⌃⇧− ou ⌘]' : 'Alt+→';
 
-function contentEl() {
-  return document.querySelector('.content');
-}
+const contentEl = () => document.querySelector('.content');
 
+/** Onde você está agora, quando não há um ponto de clique (ex.: link do chat). */
 function currentPosition() {
   if (nav.viewer) return { kind: 'viewer', side: nav.viewer.side, path: nav.viewer.path, line: nav.viewer.line };
   return { kind: 'scroll', top: contentEl()?.scrollTop ?? 0 };
@@ -45,26 +55,74 @@ function diffFileFor(side, path) {
   return store.review?.files.find((f) => (side === 'old' ? f.oldPath === path : f.newPath === path)) ?? null;
 }
 
-/**
- * Leva até um local: dentro do diff (rola, expande, destaca) ou no visualizador.
- * @param {Location} loc
- * @param {{ remember?: boolean }} [opts]
- */
-export function navigate(loc, { remember = true } = {}) {
-  if (remember) nav.history.push(currentPosition());
+// ---------- Histórico (Voltar / Avançar) ----------
+
+/** Liga o histórico ao navegador. Chamar uma vez. */
+export function installHistory() {
+  history.replaceState({ ...history.state, zgdiff: 0 }, '');
+  window.addEventListener('popstate', (e) => {
+    const k = e.state?.zgdiff;
+    // Entradas de antes de recarregar a página não valem mais.
+    if (typeof k !== 'number' || !nav.entries[k]) return;
+    nav.index = k;
+    restore(nav.entries[k]);
+  });
+  // Os botões voltar/avançar do mouse já disparam o histórico do navegador (popstate).
+}
+
+export function back() {
+  if (canGoBack.value) history.back();
+}
+
+export function forward() {
+  if (canGoForward.value) history.forward();
+}
+
+/** Mostra uma entrada do histórico sem criar outra. */
+function restore(entry) {
   nav.picker = null;
   nav.notFound = null;
-  const file = diffFileFor(loc.side, loc.path);
+  if (entry.kind === 'scroll') {
+    nav.viewer = null;
+    requestAnimationFrame(() => contentEl()?.scrollTo({ top: entry.top }));
+  } else {
+    show(entry);
+  }
+}
+
+/** Leva até a linha: no diff (rola, expande, destaca) ou no visualizador. */
+function show(loc) {
+  const file = loc.kind === 'viewer' ? null : diffFileFor(loc.side, loc.path);
   if (file && (file.hunks.length || file.binary)) {
     nav.viewer = null;
     store.collapsed.delete(file.path);
     nav.reveal = { filePath: file.path, side: loc.side, line: loc.line, nonce: Date.now() };
-    return;
+  } else {
+    openViewer(loc.side, loc.path, loc.line);
   }
-  openViewer(loc.side, loc.path, loc.line);
+}
+
+/**
+ * Vai até um local, guardando de onde você saiu para poder voltar.
+ * @param {{ path: string, side: 'old' | 'new', line: number }} loc destino
+ * @param {LineEntry} [origin] ponto do clique (sem isso, guarda a posição atual da tela)
+ */
+export function navigate(loc, origin) {
+  nav.entries[nav.index] = origin ?? currentPosition();
+  const file = diffFileFor(loc.side, loc.path);
+  const target = { kind: file && (file.hunks.length || file.binary) ? 'line' : 'viewer', path: loc.path, side: loc.side, line: loc.line };
+  nav.entries.splice(nav.index + 1);
+  nav.entries.push(target);
+  nav.index = nav.entries.length - 1;
+  history.pushState({ ...history.state, zgdiff: nav.index }, '');
+  restore(target);
 }
 
 export async function openViewer(side, path, line = 1) {
+  if (nav.viewer && nav.viewer.side === side && nav.viewer.path === path && !nav.viewer.error) {
+    nav.viewer.line = line;
+    return;
+  }
   nav.viewer = { side, path, line, lines: [], loading: true, error: '' };
   try {
     const data = await api.blob(side, path);
@@ -73,24 +131,12 @@ export async function openViewer(side, path, line = 1) {
   } catch (err) {
     if (nav.viewer) nav.viewer.error = err.message;
   } finally {
-    if (nav.viewer) nav.viewer.loading = false;
+    if (nav.viewer?.path === path) nav.viewer.loading = false;
   }
 }
 
 export function closeViewer() {
   nav.viewer = null;
-}
-
-export function back() {
-  const prev = nav.history.pop();
-  if (!prev) return;
-  nav.picker = null;
-  if (prev.kind === 'viewer') {
-    openViewer(prev.side, prev.path, prev.line);
-  } else {
-    nav.viewer = null;
-    requestAnimationFrame(() => contentEl()?.scrollTo({ top: prev.top }));
-  }
 }
 
 /** Destaca a linha de destino por alguns segundos. */
@@ -102,9 +148,11 @@ export function highlightLine(filePath, side, line) {
   }, 2500);
 }
 
+// ---------- Ir para a definição ----------
+
 /**
  * Cascata: TypeScript → heurística (no servidor) → IA (aqui, com confirmação).
- * @param {{ side: 'old' | 'new', path: string, line: number, col: number, lineText: string }} at
+ * @param {{ side: 'old' | 'new', path: string, line: number, col: number, lineText: string, inViewer: boolean }} at
  * @param {{ x: number, y: number }} point posição do clique (para a lista de candidatos)
  */
 export async function goToDefinition(at, point) {
@@ -112,30 +160,35 @@ export async function goToDefinition(at, point) {
   nav.busy = true;
   nav.picker = null;
   nav.notFound = null;
+  const origin = { kind: at.inViewer ? 'viewer' : 'line', path: at.path, side: at.side, line: at.line };
   try {
     const r = await api.definition(at);
     if (!r.symbol) return;
     const candidates = r.candidates.filter((c) => !(c.path === at.path && c.line === at.line));
     if (candidates.length === 1) {
-      navigate({ path: candidates[0].path, side: at.side, line: candidates[0].line });
+      navigate({ path: candidates[0].path, side: at.side, line: candidates[0].line }, origin);
       flash(`${r.symbol.name}: ${r.method === 'typescript' ? 'via análise do código' : 'via busca'}`);
     } else if (candidates.length > 1) {
-      nav.picker = { symbol: r.symbol.name, method: r.method, side: at.side, candidates, x: point.x, y: point.y };
+      nav.picker = { symbol: r.symbol.name, method: r.method, side: at.side, origin, candidates, x: point.x, y: point.y };
     } else if (r.candidates.length) {
       flash(`Você já está na definição de ${r.symbol.name}.`);
     } else {
       const question = definitionQuestion(r.symbol.name, at);
-      if (chatConfig.autoDefinitionFallback) {
-        askAssistant(question.text, question.context);
-      } else {
-        nav.notFound = { symbol: r.symbol.name, question, x: point.x, y: point.y };
-      }
+      if (chatConfig.autoDefinitionFallback) askAssistant(question.text, question.context);
+      else nav.notFound = { symbol: r.symbol.name, question, x: point.x, y: point.y };
     }
   } catch (err) {
     flash(err.message);
   } finally {
     nav.busy = false;
   }
+}
+
+/** Escolha na lista de candidatos (guarda o ponto do clique original para voltar). */
+export function pickCandidate(c) {
+  const p = nav.picker;
+  if (!p) return;
+  navigate({ path: c.path, side: p.side, line: c.line }, p.origin);
 }
 
 function definitionQuestion(symbol, at) {
@@ -165,33 +218,64 @@ function caretAt(x, y) {
   return r ? { node: r.startContainer, offset: r.startOffset } : null;
 }
 
+/** Nós de texto da linha (com realce, o texto fica dividido em vários spans). */
+function textNodes(root) {
+  const out = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) out.push(n);
+  return out;
+}
+
+/** Converte uma posição no texto da linha em (nó, deslocamento). */
+function pointAt(nodes, pos) {
+  let acc = 0;
+  for (const n of nodes) {
+    if (pos <= acc + n.data.length) return { node: n, offset: pos - acc };
+    acc += n.data.length;
+  }
+  const last = nodes[nodes.length - 1];
+  return { node: last, offset: last.data.length };
+}
+
 /**
  * Palavra sob o mouse dentro de uma célula de código marcada com data-def-*.
- * @returns {{ cell: HTMLElement, node: Text, start: number, end: number, col: number } | null}
+ * @returns {{ cell: HTMLElement, col: number, text: string, rect: DOMRect } | null}
  */
 function wordAt(x, y) {
   const caret = caretAt(x, y);
   if (!caret || caret.node?.nodeType !== Node.TEXT_NODE) return null;
-  const span = caret.node.parentElement;
-  if (!span?.classList.contains('text')) return null;
-  const cell = span.closest('[data-def-path]');
+  const lineEl = caret.node.parentElement?.closest('.text');
+  if (!lineEl) return null;
+  const cell = lineEl.closest('[data-def-path]');
   if (!cell) return null;
-  const text = caret.node.data;
-  let c = caret.offset;
+
+  const nodes = textNodes(lineEl);
+  let col = 0;
+  for (const n of nodes) {
+    if (n === caret.node) break;
+    col += n.data.length;
+  }
+  col += caret.offset;
+  const text = lineEl.textContent;
+
+  let c = col;
   if (!ID_CHAR.test(text[c] ?? '') && ID_CHAR.test(text[c - 1] ?? '')) c -= 1;
   if (!ID_CHAR.test(text[c] ?? '')) return null;
-  // Confere se o mouse está mesmo sobre a palavra (e não no espaço depois do fim da linha).
   let start = c;
   let end = c + 1;
   while (start > 0 && ID_CHAR.test(text[start - 1])) start--;
   while (end < text.length && ID_CHAR.test(text[end])) end++;
-  const range = document.createRange();
-  range.setStart(caret.node, start);
-  range.setEnd(caret.node, end);
-  const rect = range.getBoundingClientRect();
-  if (x < rect.left - 1 || x > rect.right + 1 || y < rect.top - 1 || y > rect.bottom + 1) return null;
   if (/^\p{N}/u.test(text.slice(start, end))) return null;
-  return { cell, node: caret.node, start, end, col: start, rect };
+
+  const a = pointAt(nodes, start);
+  const b = pointAt(nodes, end);
+  const range = document.createRange();
+  range.setStart(a.node, a.offset);
+  range.setEnd(b.node, b.offset);
+  const rect = range.getBoundingClientRect();
+  // Confere se o mouse está mesmo sobre a palavra (e não no espaço depois do fim da linha).
+  if (x < rect.left - 1 || x > rect.right + 1 || y < rect.top - 1 || y > rect.bottom + 1) return null;
+  return { cell, col: start, text, rect };
 }
 
 let underline = null;
@@ -254,7 +338,7 @@ export function installDefinitionClicks() {
       hideUnderline();
       const { defPath, defSide, defLine } = w.cell.dataset;
       goToDefinition(
-        { side: defSide, path: defPath, line: Number(defLine), col: w.col, lineText: w.node.data },
+        { side: defSide, path: defPath, line: Number(defLine), col: w.col, lineText: w.text, inViewer: !!w.cell.closest('.viewer') },
         { x: e.clientX, y: e.clientY },
       );
     },

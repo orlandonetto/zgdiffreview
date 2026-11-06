@@ -1286,3 +1286,28 @@ body.def-hover .diff td.code {
   justify-content: flex-end;
   margin-top: 4px;
 }
+
+/* ---------- Realce de sintaxe (temas GitHub do VS Code, via Shiki) ---------- */
+
+.diff td.code .text > span {
+  color: var(--l, inherit);
+}
+@media (prefers-color-scheme: dark) {
+  .diff td.code .text > span {
+    color: var(--d, inherit);
+  }
+}
+
+.nav-buttons {
+  display: inline-flex;
+}
+.nav-buttons .btn {
+  padding: 4px 10px;
+}
+.nav-buttons .btn:first-child {
+  border-radius: 6px 0 0 6px;
+}
+.nav-buttons .btn + .btn {
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+}

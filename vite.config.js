@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 export default defineConfig({
   root: fileURLToPath(new URL('./web', import.meta.url)),
   plugins: [vue()],
+  // Worker em ES module: as gramáticas do realce viram arquivos separados, baixados sob demanda.
+  worker: { format: 'es' },
   build: {
     outDir: fileURLToPath(new URL('./dist/web', import.meta.url)),
     emptyOutDir: true,
