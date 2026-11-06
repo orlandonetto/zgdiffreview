@@ -1,0 +1,46 @@
+{
+  "name": "zgdiff",
+  "version": "0.1.0",
+  "description": "Review local de branches no navegador, no estilo GitHub/Bitbucket: diff agrupado, arquivos vistos, comentários e expansão de contexto.",
+  "keywords": [
+    "git",
+    "diff",
+    "review",
+    "code-review",
+    "cli",
+    "pull-request",
+    "branch"
+  ],
+  "type": "module",
+  "bin": {
+    "zgdiff": "bin/zgdiff.js"
+  },
+  "files": [
+    "bin",
+    "src/server",
+    "src/shared",
+    "dist/web"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev:web": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.10",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0",
+    "vue": "^3.5.45"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.6.0",
+    "@google/genai": "^3.0.0",
+    "openai": "^7.53.0",
+    "typescript": "^6.0.3"
+  }
+}
